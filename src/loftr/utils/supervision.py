@@ -5,8 +5,11 @@ import torch
 from einops import repeat
 from kornia.utils import create_meshgrid
 
-from .geometry import warp_kpts
+import cv2 as cv
+from .geometry import (warp_kpts, warp_kpts_ptb, warp_kpts_ptb_inv)
+from src.utils.plotting import make_matching_figure
 
+import numpy as np
 ##############  ↓  Coarse-Level supervision  ↓  ##############
 
 
@@ -59,8 +62,10 @@ def spvs_coarse(data, config):
     # warp kpts bi-directionally and resize them to coarse-level resolution
     # (no depth consistency check, since it leads to worse results experimentally)
     # (unhandled edge case: points with 0-depth will be warped to the left-up corner)
-    _, w_pt0_i = warp_kpts(grid_pt0_i, data['depth0'], data['depth1'], data['T_0to1'], data['K0'], data['K1'])
-    _, w_pt1_i = warp_kpts(grid_pt1_i, data['depth1'], data['depth0'], data['T_1to0'], data['K1'], data['K0'])
+    #_, w_pt0_i = warp_kpts(grid_pt0_i, data['depth0'], data['depth1'], data['T_0to1'], data['K0'], data['K1'])
+    #_, w_pt1_i = warp_kpts(grid_pt1_i, data['depth1'], data['depth0'], data['T_1to0'], data['K1'], data['K0'])
+    w_pt0_i = warp_kpts_ptb(grid_pt0_i, data['gt_homo'])
+    w_pt1_i = warp_kpts_ptb_inv(grid_pt1_i, data['gt_homo'])
     w_pt0_c = w_pt0_i / scale1
     w_pt1_c = w_pt1_i / scale0
 
@@ -85,7 +90,13 @@ def spvs_coarse(data, config):
     b_ids, i_ids = torch.where(correct_0to1 != 0)
     j_ids = nearest_index1[b_ids, i_ids]
 
+    image0 = data['image0'].cpu().numpy()[0][0]*255
+    image1 = data['image1'].cpu().numpy()[0][0]*255
+    cv.imwrite('assets/ptb_testdata/img0.jpg', image0)
+    cv.imwrite('assets/ptb_testdata/img1.jpg', image1)
     conf_matrix_gt[b_ids, i_ids, j_ids] = 1
+    number = torch.nonzero(conf_matrix_gt)
+    print(len(number))
     data.update({'conf_matrix_gt': conf_matrix_gt})
 
     # 5. save coarse matches(gt) for training fine level
@@ -112,7 +123,7 @@ def spvs_coarse(data, config):
 def compute_supervision_coarse(data, config):
     assert len(set(data['dataset_name'])) == 1, "Do not support mixed datasets training!"
     data_source = data['dataset_name'][0]
-    if data_source.lower() in ['scannet', 'megadepth']:
+    if data_source.lower() in ['scannet', 'megadepth','homo']:
         spvs_coarse(data, config)
     else:
         raise ValueError(f'Unknown data source: {data_source}')
@@ -145,7 +156,7 @@ def spvs_fine(data, config):
 
 def compute_supervision_fine(data, config):
     data_source = data['dataset_name'][0]
-    if data_source.lower() in ['scannet', 'megadepth']:
+    if data_source.lower() in ['scannet', 'megadepth', 'homo']:
         spvs_fine(data, config)
     else:
         raise NotImplementedError

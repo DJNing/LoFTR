@@ -1,5 +1,5 @@
 import torch
-
+import numpy as np
 
 @torch.no_grad()
 def warp_kpts(kpts0, depth0, depth1, T_0to1, K0, K1):
@@ -52,3 +52,46 @@ def warp_kpts(kpts0, depth0, depth1, T_0to1, K0, K1):
     valid_mask = nonzero_mask * covisible_mask * consistent_mask
 
     return valid_mask, w_kpts0
+
+
+def make_homog(points):
+    """ 将点集(dimxn 的数组)转换为齐次坐标表示 """
+    return np.vstack((points,np.ones((1,points.shape[1]))))
+
+def normalize(points):
+    """ 在齐次坐标意义下，对点集进行归一化，使最后一行为 1 """
+    for row in points:
+        row /= row[-1]
+    return points
+
+@torch.no_grad()
+def warp_kpts_ptb(kpts0, homo):
+    kpts0_long = kpts0.round().long()
+    kpts = kpts0_long.cpu().numpy()
+    kpts_m = make_homog(kpts[0].T)
+    homo = homo[0].cpu().numpy()
+    kpts_warped = np.dot(homo,kpts_m).T
+    kpts_warped = normalize(kpts_warped)
+    kpts_warped = np.delete(kpts_warped, -1, axis=1)
+    kpts0_w = kpts_warped.reshape(1, kpts_warped.shape[0], kpts_warped.shape[1])
+    #print(kpts0_w)
+    #print(kpts0)
+    kpts0_w = torch.from_numpy(kpts0_w).cuda()
+    return kpts0_w
+
+@torch.no_grad()
+def warp_kpts_ptb_inv(kpts0, homo):
+    kpts0_long = kpts0.round().long()
+    kpts = kpts0_long.cpu().numpy()
+    kpts_m = make_homog(kpts[0].T)
+    homo = homo[0].cpu().numpy()
+    homo = np.linalg.inv(homo)
+    kpts_warped = np.dot(homo,kpts_m).T
+    kpts_warped = normalize(kpts_warped)
+    kpts_warped = np.delete(kpts_warped, -1, axis=1)
+    kpts0_w = kpts_warped.reshape(1, kpts_warped.shape[0], kpts_warped.shape[1])
+    #print(kpts0_w)
+    #print(kpts0)
+    kpts0_w = torch.from_numpy(kpts0_w).cuda()
+    return kpts0_w
+
